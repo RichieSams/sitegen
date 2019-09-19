@@ -8,10 +8,16 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+type codeFormattingConfig struct {
+	ChromaStyle string `yaml:"chroma_style"`
+	TabWidth    int    `yaml:"tab_width"`
+}
+
 type buildConfig struct {
-	ContentFolder   string `yaml:"content_folder"`
-	TemplatesFolder string `yaml:"templates_folder"`
-	OutputFolder    string `yaml:"output_folder"`
+	ContentFolder   string               `yaml:"content_folder"`
+	TemplatesFolder string               `yaml:"templates_folder"`
+	OutputFolder    string               `yaml:"output_folder"`
+	CodeFormatting  codeFormattingConfig `yaml:"code_formatting"`
 }
 
 func parseConfig(filePath string) (buildConfig, error) {
@@ -51,6 +57,14 @@ func parseConfig(filePath string) (buildConfig, error) {
 		config.TemplatesFolder = configDir
 	} else if !filepath.IsAbs(config.TemplatesFolder) {
 		config.TemplatesFolder = filepath.Join(configDir, config.TemplatesFolder)
+	}
+
+	if config.CodeFormatting.ChromaStyle == "" {
+		config.CodeFormatting.ChromaStyle = "monokai"
+	}
+
+	if config.CodeFormatting.TabWidth == 0 {
+		config.CodeFormatting.TabWidth = 4
 	}
 
 	return config, nil
