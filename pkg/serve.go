@@ -62,7 +62,10 @@ func createConfigFileWatcher(configPath string, inputFoldersWatcher **watcher.Wa
 					log.Fatal(err)
 				}
 
-				BuildSite(configPath)
+				err = BuildSite(configPath)
+				if err != nil {
+					log.Fatal(err)
+				}
 			case err := <-w.Error:
 				log.Fatal(err)
 			case <-w.Closed:
@@ -102,7 +105,10 @@ func createInputFoldersWatcher(config buildConfig, configPath string) (*watcher.
 			select {
 			case <-w.Event:
 				log.Println("Triggering re-build")
-				BuildSite(configPath)
+				err = BuildSite(configPath)
+				if err != nil {
+					log.Fatalln(err)
+				}
 			case err := <-w.Error:
 				log.Fatalln(err)
 			case <-w.Closed:
