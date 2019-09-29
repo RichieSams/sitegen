@@ -103,7 +103,7 @@ func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2
 	delete(frontMatter, "template")
 
 	// Render the markdown
-	extensions := bf.Tables | bf.FencedCode | bf.Autolink | bf.Strikethrough | bf.SpaceHeadings | bf.BackslashLineBreak | bf.DefinitionLists | bf.Footnotes
+	extensions := bf.Tables | bf.FencedCode | bf.Strikethrough | bf.SpaceHeadings | bf.BackslashLineBreak | bf.DefinitionLists | bf.Footnotes | bf.NoIntraEmphasis
 
 	content := bf.Run(
 		body,
@@ -136,6 +136,7 @@ func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2
 
 	template, err := templateSet.FromString(templateData)
 	if err != nil {
+		log.Printf("Template:\n\n%s\n\n", templateData)
 		return errors.Wrapf(err, "Failed to parse template data for [%s]", inputPath)
 	}
 
