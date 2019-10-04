@@ -241,7 +241,7 @@ func BuildSite(configPath string) error {
 		}
 
 		destDir := filepath.Dir(filepath.Join(config.OutputFolder, relPath))
-		err = os.MkdirAll(destDir, 777)
+		err = os.MkdirAll(destDir, 0777)
 		if err != nil {
 			return errors.Wrapf(err, "Failed to create destination directory [%s]", destDir)
 		}
