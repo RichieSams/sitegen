@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -8,16 +9,20 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 
 	"github.com/Depado/bfchroma"
 	"github.com/alecthomas/chroma/formatters/html"
 	"github.com/flosch/pongo2"
 	"github.com/pkg/errors"
+	"github.com/satori/go.uuid"
 	bf "gopkg.in/russross/blackfriday.v2"
 	"gopkg.in/yaml.v2"
 )
 
 var frontMatterRe = regexp.MustCompile(`(?msU)\+\+\+[\r\n]+(.*)+\+\+\+`)
+var templateDoubleParenRe = regexp.MustCompile(`(?msU).*({{.*}}).*`)
+var templateParenPercentRe = regexp.MustCompile(`(?msU).*({%.*%}).*`)
 
 func parseFrontMatter(input []byte) (frontMatter map[string]interface{}, body []byte, err error) {
 	matches := frontMatterRe.FindSubmatchIndex(input)
@@ -81,6 +86,50 @@ func renderJinjaFile(inputPath string, outputPath string, templateSet *pongo2.Te
 	return nil
 }
 
+// maskOutTemplateLanguage regex searches through the document and replaces any instances of `{{ ... }}` and `{% ... %}` with GUIDs
+// We do this so the markdown renderer doesn't get confused and try to escape template language
+func maskOutTemplateLanguage(inputDocument []byte) (maskedDocument []byte, maskedValues map[string][]byte) {
+	maskedValues = map[string][]byte{}
+
+	maskedDocument, maskedValues = maskDocument(inputDocument, templateDoubleParenRe, maskedValues)
+	maskedDocument, maskedValues = maskDocument(maskedDocument, templateParenPercentRe, maskedValues)
+
+	return maskedDocument, maskedValues
+}
+
+func maskDocument(inputDocument []byte, re *regexp.Regexp, maskedValues map[string][]byte) ([]byte, map[string][]byte) {
+	maskedDocument := []byte{}
+
+	matches := [][]int{}
+	for _, match := range re.FindAllSubmatchIndex(inputDocument, -1) {
+		matches = append(matches, []int{match[2], match[3]})
+	}
+	sort.Slice(matches, func(i, j int) bool { return matches[i][0] < matches[j][0] })
+
+	lastMaskedIndex := 0
+	for _, matchIndices := range matches {
+		maskedDocument = append(maskedDocument, inputDocument[lastMaskedIndex:matchIndices[0]]...)
+		mask := uuid.NewV4().String()
+		maskedValues[mask] = inputDocument[matchIndices[0]:matchIndices[1]]
+		maskedDocument = append(maskedDocument, []byte(mask)...)
+
+		lastMaskedIndex = matchIndices[1]
+	}
+	maskedDocument = append(maskedDocument, inputDocument[lastMaskedIndex:]...)
+
+	return maskedDocument, maskedValues
+}
+
+func restoreTemplateLanguage(maskedDocument []byte, maskedValues map[string][]byte) (restoredDocument []byte) {
+	restoredDocument = maskedDocument
+
+	for uuid, value := range maskedValues {
+		restoredDocument = bytes.ReplaceAll(restoredDocument, []byte(uuid), value)
+	}
+
+	return restoredDocument
+}
+
 func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2.TemplateSet, codeFormatting codeFormattingConfig) error {
 	markdownBytes, err := ioutil.ReadFile(inputPath)
 	if err != nil {
@@ -102,11 +151,14 @@ func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2
 	}
 	delete(frontMatter, "template")
 
+	// Mask out template language prior to rendering markdown
+	maskedDocument, maskedValues := maskOutTemplateLanguage(body)
+
 	// Render the markdown
 	extensions := bf.Tables | bf.FencedCode | bf.Strikethrough | bf.SpaceHeadings | bf.BackslashLineBreak | bf.DefinitionLists | bf.Footnotes | bf.NoIntraEmphasis
 
 	content := bf.Run(
-		body,
+		maskedDocument,
 		bf.WithRenderer(
 			bfchroma.NewRenderer(
 				bfchroma.WithoutAutodetect(),
@@ -122,6 +174,10 @@ func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2
 		bf.WithExtensions(extensions),
 	)
 
+	// Restore the template language
+	restoredDocument := restoreTemplateLanguage(content, maskedValues)
+
+	// Render the final template
 	templateData := fmt.Sprintf(`{%% extends "%s" %%}`, templateExtends)
 	for key, value := range frontMatter {
 		templateData += fmt.Sprintf(`
@@ -132,7 +188,7 @@ func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2
 	templateData += fmt.Sprintf(`
 		{%% block content %%}
 		%s
-		{%% endblock %%}`, content)
+		{%% endblock %%}`, restoredDocument)
 
 	template, err := templateSet.FromString(templateData)
 	if err != nil {
