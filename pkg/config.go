@@ -13,11 +13,16 @@ type codeFormattingConfig struct {
 	TabWidth    int    `yaml:"tab_width"`
 }
 
+type configDataEntry struct {
+	Pattern string `yaml:"pattern"`
+}
+
 type buildConfig struct {
-	ContentFolder   string               `yaml:"content_folder"`
-	TemplatesFolder string               `yaml:"templates_folder"`
-	OutputFolder    string               `yaml:"output_folder"`
-	CodeFormatting  codeFormattingConfig `yaml:"code_formatting"`
+	ContentFolder   string                     `yaml:"content_folder"`
+	TemplatesFolder string                     `yaml:"templates_folder"`
+	OutputFolder    string                     `yaml:"output_folder"`
+	CodeFormatting  codeFormattingConfig       `yaml:"code_formatting"`
+	Data            map[string]configDataEntry `yaml:"data"`
 }
 
 func parseConfig(filePath string) (buildConfig, error) {

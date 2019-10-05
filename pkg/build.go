@@ -24,7 +24,9 @@ var frontMatterRe = regexp.MustCompile(`(?msU)\+\+\+[\r\n]+(.*)+\+\+\+`)
 var templateDoubleParenRe = regexp.MustCompile(`(?msU).*({{.*}}).*`)
 var templateParenPercentRe = regexp.MustCompile(`(?msU).*({%.*%}).*`)
 
-func parseFrontMatter(input []byte) (frontMatter map[string]interface{}, body []byte, err error) {
+type frontMatterType map[string]interface{}
+
+func parseFrontMatter(input []byte) (frontMatter frontMatterType, body []byte, err error) {
 	matches := frontMatterRe.FindSubmatchIndex(input)
 	if matches == nil || len(matches) < 4 {
 		return map[string]interface{}{}, input, nil
@@ -66,7 +68,7 @@ func copyFile(srcPath string, destPath string) error {
 	return nil
 }
 
-func renderJinjaFile(inputPath string, outputPath string, templateSet *pongo2.TemplateSet) error {
+func renderJinjaFile(inputPath string, outputPath string, templateSet *pongo2.TemplateSet, templateData pongo2.Context) error {
 	template, err := templateSet.FromFile(inputPath)
 	if err != nil {
 		return errors.Wrapf(err, "Failed to parse template file [%s]", inputPath)
@@ -78,7 +80,7 @@ func renderJinjaFile(inputPath string, outputPath string, templateSet *pongo2.Te
 	}
 	defer destFile.Close()
 
-	err = template.ExecuteWriter(pongo2.Context{}, destFile)
+	err = template.ExecuteWriter(templateData, destFile)
 	if err != nil {
 		return errors.Wrapf(err, "Failed to render and write template file [%s]", inputPath)
 	}
@@ -130,7 +132,7 @@ func restoreTemplateLanguage(maskedDocument []byte, maskedValues map[string][]by
 	return restoredDocument
 }
 
-func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2.TemplateSet, codeFormatting codeFormattingConfig) error {
+func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2.TemplateSet, codeFormatting codeFormattingConfig, templateData pongo2.Context) error {
 	markdownBytes, err := ioutil.ReadFile(inputPath)
 	if err != nil {
 		return errors.Wrapf(err, "Failed to read input markdown file [%s]", inputPath)
@@ -178,21 +180,21 @@ func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2
 	restoredDocument := restoreTemplateLanguage(content, maskedValues)
 
 	// Render the final template
-	templateData := fmt.Sprintf(`{%% extends "%s" %%}`, templateExtends)
+	templateString := fmt.Sprintf(`{%% extends "%s" %%}`, templateExtends)
 	for key, value := range frontMatter {
-		templateData += fmt.Sprintf(`
+		templateString += fmt.Sprintf(`
 			{%% block %s %%}
 			%v
 			{%% endblock %%}`, key, value)
 	}
-	templateData += fmt.Sprintf(`
+	templateString += fmt.Sprintf(`
 		{%% block content %%}
 		%s
 		{%% endblock %%}`, restoredDocument)
 
-	template, err := templateSet.FromString(templateData)
+	template, err := templateSet.FromString(templateString)
 	if err != nil {
-		log.Printf("Template:\n\n%s\n\n", templateData)
+		log.Printf("Template:\n\n%s\n\n", templateString)
 		return errors.Wrapf(err, "Failed to parse template data for [%s]", inputPath)
 	}
 
@@ -202,12 +204,52 @@ func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2
 	}
 	defer destFile.Close()
 
-	err = template.ExecuteWriter(pongo2.Context{}, destFile)
+	err = template.ExecuteWriter(templateData, destFile)
 	if err != nil {
 		return errors.Wrapf(err, "Failed to render and write template file [%s]", inputPath)
 	}
 
 	return nil
+}
+
+func parseData(config buildConfig) (pongo2.Context, error) {
+	context := pongo2.Context{}
+
+	for entryName, entryInfo := range config.Data {
+		files, err := filepath.Glob(filepath.Join(config.ContentFolder, entryInfo.Pattern))
+		if err != nil {
+			return nil, errors.Wrapf(err, "Failed to Glob for data [%s], using pattern [%s]", entryName, entryInfo.Pattern)
+		}
+
+		dataEntry := []frontMatterType{}
+		for _, file := range files {
+			fileBytes, err := ioutil.ReadFile(file)
+			if err != nil {
+				return nil, errors.Wrapf(err, "Failed to read file [%s] for data", file)
+			}
+
+			frontMatter, _, err := parseFrontMatter(fileBytes)
+			if err != nil {
+				return nil, err
+			}
+
+			// Add extra info to the frontmatter
+			outputPath, err := filepath.Rel(config.ContentFolder, file)
+			if err != nil {
+				return nil, errors.Wrapf(err, "Failed to get relative path of file [%s] for data", file)
+			}
+			if filepath.Ext(outputPath) == ".jinja" || filepath.Ext(outputPath) == ".md" {
+				outputPath = outputPath[0 : len(outputPath)-len(filepath.Ext(outputPath))]
+			}
+			frontMatter["output_path"] = "/" + outputPath
+
+			dataEntry = append(dataEntry, frontMatter)
+		}
+
+		context[entryName] = dataEntry
+	}
+
+	return context, nil
 }
 
 // BuildSite will parse the supplied config file and use it to generate a site
@@ -230,6 +272,12 @@ func BuildSite(configPath string) error {
 	}
 	templateSet := pongo2.NewSet("sitegen", templateLoader)
 
+	// Parse any data
+	templateData, err := parseData(config)
+	if err != nil {
+		return err
+	}
+
 	err = filepath.Walk(config.ContentFolder, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
@@ -250,14 +298,14 @@ func BuildSite(configPath string) error {
 		if filepath.Ext(path) == ".jinja" {
 			destPath := filepath.Join(config.OutputFolder, relPath[0:len(relPath)-len(filepath.Ext(relPath))])
 			log.Printf("Rendering template %s -> %s\n", relPath, destPath)
-			return renderJinjaFile(path, destPath, templateSet)
+			return renderJinjaFile(path, destPath, templateSet, templateData)
 		}
 
 		// If it's a md file, render the markdown and then use that to render a template
 		if filepath.Ext(path) == ".md" {
 			destPath := filepath.Join(config.OutputFolder, relPath[0:len(relPath)-len(filepath.Ext(relPath))])
 			log.Printf("Rendering markdown template %s -> %s\n", relPath, destPath)
-			return renderMarkdownFile(path, destPath, templateSet, config.CodeFormatting)
+			return renderMarkdownFile(path, destPath, templateSet, config.CodeFormatting, templateData)
 		}
 
 		// If it's not a jinja file, we assume it's a static file and can be simply copied over
