@@ -6,14 +6,18 @@ import (
 )
 
 // Org mode lexer.
-var Org = internal.Register(MustNewLexer(
+var Org = internal.Register(MustNewLazyLexer(
 	&Config{
 		Name:      "Org Mode",
 		Aliases:   []string{"org", "orgmode"},
 		Filenames: []string{"*.org"},
 		MimeTypes: []string{"text/org"}, // https://lists.gnu.org/r/emacs-orgmode/2017-09/msg00087.html
 	},
-	Rules{
+	orgRules,
+))
+
+func orgRules() Rules {
+	return Rules{
 		"root": {
 			{`^# .*$`, Comment, nil},
 			// Headings
@@ -24,9 +28,9 @@ var Org = internal.Register(MustNewLexer(
 			{`^(\*)( TODO)( .*)$`, ByGroups(GenericHeading, Error, GenericStrong), nil},
 			{`^(\*\*+)( TODO)( .*)$`, ByGroups(GenericSubheading, Error, Text), nil},
 			{`^(\*)( .+?)( :[a-zA-Z0-9_@:]+:)$`, ByGroups(GenericHeading, GenericStrong, GenericEmph), nil}, // Level 1 heading with tags
-			{`^(\*)( .+)$`, ByGroups(GenericHeading, GenericStrong), nil}, // // Level 1 heading with NO tags
-			{`^(\*\*+)( .+?)( :[a-zA-Z0-9_@:]+:)$`, ByGroups(GenericSubheading, Text, GenericEmph), nil}, // Level 2+ heading with tags
-			{`^(\*\*+)( .+)$`, ByGroups(GenericSubheading, Text), nil}, // Level 2+ heading with NO tags
+			{`^(\*)( .+)$`, ByGroups(GenericHeading, GenericStrong), nil},                                   // // Level 1 heading with NO tags
+			{`^(\*\*+)( .+?)( :[a-zA-Z0-9_@:]+:)$`, ByGroups(GenericSubheading, Text, GenericEmph), nil},    // Level 2+ heading with tags
+			{`^(\*\*+)( .+)$`, ByGroups(GenericSubheading, Text), nil},                                      // Level 2+ heading with NO tags
 			// Checkbox lists
 			{`^( *)([+-] )(\[[ X]\])( .+)$`, ByGroups(Text, Keyword, Keyword, UsingSelf("inline")), nil},
 			{`^( +)(\* )(\[[ X]\])( .+)$`, ByGroups(Text, Keyword, Keyword, UsingSelf("inline")), nil},
@@ -45,7 +49,8 @@ var Org = internal.Register(MustNewLexer(
 			// - Comment Blocks
 			{`(?i)^( *#\+begin_comment *\n)([\w\W]*?)(^ *#\+end_comment *$)`, ByGroups(Comment, Comment, Comment), nil},
 			// - Src Blocks
-			{`(?i)^( *#\+begin_src )([^ \n]+)(.*?\n)([\w\W]*?)(^ *#\+end_src *$)`,
+			{
+				`(?i)^( *#\+begin_src )([^ \n]+)(.*?\n)([\w\W]*?)(^ *#\+end_src *$)`,
 				UsingByGroup(
 					internal.Get,
 					2, 4,
@@ -54,7 +59,8 @@ var Org = internal.Register(MustNewLexer(
 				nil,
 			},
 			// - Export Blocks
-			{`(?i)^( *#\+begin_export )(\w+)( *\n)([\w\W]*?)(^ *#\+end_export *$)`,
+			{
+				`(?i)^( *#\+begin_export )(\w+)( *\n)([\w\W]*?)(^ *#\+end_export *$)`,
 				UsingByGroup(
 					internal.Get,
 					2, 4,
@@ -78,19 +84,19 @@ var Org = internal.Register(MustNewLexer(
 			Include("inline"),
 		},
 		"inline": {
-			{`(\s)*(\*[^ \n*][^*]+?[^ \n*]\*)((?=\W|\n|$))`, ByGroups(Text, GenericStrong, Text), nil}, // Bold
-			{`(\s)*(/[^/]+?/)((?=\W|\n|$))`, ByGroups(Text, GenericEmph, Text), nil}, // Italic
-			{`(\s)*(=[^\n=]+?=)((?=\W|\n|$))`, ByGroups(Text, NameClass, Text), nil}, // Verbatim
-			{`(\s)*(~[^\n~]+?~)((?=\W|\n|$))`, ByGroups(Text, NameClass, Text), nil}, // Code
-			{`(\s)*(\+[^+]+?\+)((?=\W|\n|$))`, ByGroups(Text, GenericDeleted, Text), nil}, // Strikethrough
-			{`(\s)*(_[^_]+?_)((?=\W|\n|$))`, ByGroups(Text, GenericUnderline, Text), nil}, // Underline
-			{`(<)([^<>]+?)(>)`, ByGroups(Text, String, Text), nil}, // <datestamp>
-			{`[{]{3}[^}]+[}]{3}`, NameBuiltin, nil}, // {{{macro(foo,1)}}}
+			{`(\s)*(\*[^ \n*][^*]+?[^ \n*]\*)((?=\W|\n|$))`, ByGroups(Text, GenericStrong, Text), nil},                          // Bold
+			{`(\s)*(/[^/]+?/)((?=\W|\n|$))`, ByGroups(Text, GenericEmph, Text), nil},                                            // Italic
+			{`(\s)*(=[^\n=]+?=)((?=\W|\n|$))`, ByGroups(Text, NameClass, Text), nil},                                            // Verbatim
+			{`(\s)*(~[^\n~]+?~)((?=\W|\n|$))`, ByGroups(Text, NameClass, Text), nil},                                            // Code
+			{`(\s)*(\+[^+]+?\+)((?=\W|\n|$))`, ByGroups(Text, GenericDeleted, Text), nil},                                       // Strikethrough
+			{`(\s)*(_[^_]+?_)((?=\W|\n|$))`, ByGroups(Text, GenericUnderline, Text), nil},                                       // Underline
+			{`(<)([^<>]+?)(>)`, ByGroups(Text, String, Text), nil},                                                              // <datestamp>
+			{`[{]{3}[^}]+[}]{3}`, NameBuiltin, nil},                                                                             // {{{macro(foo,1)}}}
 			{`([^[])(\[fn:)([^]]+?)(\])([^]])`, ByGroups(Text, NameBuiltinPseudo, LiteralString, NameBuiltinPseudo, Text), nil}, // [fn:1]
 			// Links
 			{`(\[\[)([^][]+?)(\]\[)([^][]+)(\]\])`, ByGroups(Text, NameAttribute, Text, NameTag, Text), nil}, // [[link][descr]]
-			{`(\[\[)([^][]+?)(\]\])`, ByGroups(Text, NameAttribute, Text), nil}, // [[link]]
-			{`(<<)([^<>]+?)(>>)`, ByGroups(Text, NameAttribute, Text), nil}, // <<targetlink>>
+			{`(\[\[)([^][]+?)(\]\])`, ByGroups(Text, NameAttribute, Text), nil},                              // [[link]]
+			{`(<<)([^<>]+?)(>>)`, ByGroups(Text, NameAttribute, Text), nil},                                  // <<targetlink>>
 			// Tables
 			{`^( *)(\|[ -].*?[ -]\|)$`, ByGroups(Text, String), nil},
 			// Blank lines, newlines
@@ -98,5 +104,5 @@ var Org = internal.Register(MustNewLexer(
 			// Any other text
 			{`.`, Text, nil},
 		},
-	},
-))
+	}
+}

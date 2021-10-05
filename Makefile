@@ -1,10 +1,10 @@
 ifeq ($(OS),Windows_NT)
-	EXT=.exe
+EXT=.exe
 else
-	EXT=
+EXT=
 endif
 
-GOIMAGE=golang:1.13-alpine
+GOIMAGE=golang:1.15-alpine
 LDFLAGS?=-ldflags="-s -w"
 
 .PHONY: build vendor

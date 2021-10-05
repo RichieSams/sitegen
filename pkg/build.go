@@ -10,13 +10,20 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 
-	"github.com/Depado/bfchroma"
-	"github.com/alecthomas/chroma/formatters/html"
+	"github.com/alecthomas/chroma"
+	chroma_html "github.com/alecthomas/chroma/formatters/html"
+	"github.com/alecthomas/chroma/lexers"
+	"github.com/alecthomas/chroma/styles"
 	"github.com/flosch/pongo2"
+	"github.com/gomarkdown/markdown"
+	"github.com/gomarkdown/markdown/ast"
+	markdown_html "github.com/gomarkdown/markdown/html"
+	"github.com/gomarkdown/markdown/parser"
+	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	uuid "github.com/satori/go.uuid"
-	bf "gopkg.in/russross/blackfriday.v2"
 	"gopkg.in/yaml.v2"
 )
 
@@ -132,6 +139,46 @@ func restoreTemplateLanguage(maskedDocument []byte, maskedValues map[string][]by
 	return restoredDocument
 }
 
+type CodeHighlighterRenderer struct {
+	Style     *chroma.Style
+	Formatter *chroma_html.Formatter
+	Errors    error
+}
+
+func NewCodeHighlighterRenderer(tabWidth int, style string) CodeHighlighterRenderer {
+	return CodeHighlighterRenderer{
+		Style:     styles.Get(style),
+		Formatter: chroma_html.New(chroma_html.TabWidth(tabWidth)),
+	}
+}
+
+func (r *CodeHighlighterRenderer) RenderNode(w io.Writer, node ast.Node, entering bool) (ast.WalkStatus, bool) {
+	// Skip all nodes that are not CodeBlock nodes
+	codeBlock, ok := node.(*ast.CodeBlock)
+	if !ok {
+		return ast.GoToNext, false
+	}
+
+	lexer := lexers.Get(strings.Trim(string(codeBlock.Info), "\t "))
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+
+	// Tokenize the code
+	iterator, err := lexer.Tokenise(nil, string(codeBlock.Literal))
+	if err != nil {
+		r.Errors = multierror.Append(r.Errors, fmt.Errorf("Failed to tokenise code block - %w", err)).ErrorOrNil()
+		return ast.GoToNext, false
+	}
+
+	if err := r.Formatter.Format(w, styles.Monokai, iterator); err != nil {
+		r.Errors = multierror.Append(r.Errors, fmt.Errorf("Failed to format code block - %w", err)).ErrorOrNil()
+		return ast.GoToNext, false
+	}
+
+	return ast.GoToNext, true
+}
+
 func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2.TemplateSet, codeFormatting codeFormattingConfig, templateData pongo2.Context) error {
 	markdownBytes, err := ioutil.ReadFile(inputPath)
 	if err != nil {
@@ -153,28 +200,27 @@ func renderMarkdownFile(inputPath string, outputPath string, templateSet *pongo2
 	}
 	delete(frontMatter, "template")
 
+	// Force unix newlines
+	// The markdown parser can't handle \r\n
+	sanitizedBody := []byte(strings.ReplaceAll(string(body), "\r\n", "\n"))
+
 	// Mask out template language prior to rendering markdown
-	maskedDocument, maskedValues := maskOutTemplateLanguage(body)
+	maskedDocument, maskedValues := maskOutTemplateLanguage(sanitizedBody)
 
 	// Render the markdown
-	extensions := bf.Tables | bf.FencedCode | bf.Strikethrough | bf.SpaceHeadings | bf.BackslashLineBreak | bf.DefinitionLists | bf.Footnotes | bf.NoIntraEmphasis
+	extensions := parser.Tables | parser.FencedCode | parser.Strikethrough | parser.SpaceHeadings | parser.BackslashLineBreak | parser.DefinitionLists | parser.Footnotes | parser.NoIntraEmphasis | parser.MathJax
+	parser := parser.NewWithExtensions(extensions)
+	codeRenderer := NewCodeHighlighterRenderer(codeFormatting.TabWidth, codeFormatting.ChromaStyle)
+	renderer := markdown_html.NewRenderer(markdown_html.RendererOptions{
+		Flags:          markdown_html.CommonFlags,
+		RenderNodeHook: codeRenderer.RenderNode,
+	})
+	content := markdown.ToHTML(maskedDocument, parser, renderer)
 
-	content := bf.Run(
-		maskedDocument,
-		bf.WithRenderer(
-			bfchroma.NewRenderer(
-				bfchroma.WithoutAutodetect(),
-				bfchroma.Style(codeFormatting.ChromaStyle),
-				bfchroma.ChromaOptions(
-					html.TabWidth(codeFormatting.TabWidth),
-				),
-				bfchroma.Extend(
-					bf.NewHTMLRenderer(bf.HTMLRendererParameters{}),
-				),
-			),
-		),
-		bf.WithExtensions(extensions),
-	)
+	// Check for code formatting errors
+	if codeRenderer.Errors != nil {
+		return fmt.Errorf("Failed to format one or more code blocks - %w", err)
+	}
 
 	// Restore the template language
 	restoredDocument := restoreTemplateLanguage(content, maskedValues)
