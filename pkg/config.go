@@ -14,7 +14,9 @@ type codeFormattingConfig struct {
 }
 
 type configDataEntry struct {
-	Pattern string `yaml:"pattern"`
+	Pattern       string `yaml:"pattern"`
+	SortKey       string `yaml:"sort_key"`
+	SortAscending bool   `yaml:"sort_ascending"`
 }
 
 type buildConfig struct {

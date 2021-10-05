@@ -15,7 +15,7 @@ import (
 	"github.com/alecthomas/chroma/formatters/html"
 	"github.com/flosch/pongo2"
 	"github.com/pkg/errors"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	bf "gopkg.in/russross/blackfriday.v2"
 	"gopkg.in/yaml.v2"
 )
@@ -244,6 +244,19 @@ func parseData(config buildConfig) (pongo2.Context, error) {
 			frontMatter["output_path"] = "/" + outputPath
 
 			dataEntry = append(dataEntry, frontMatter)
+		}
+
+		if entryInfo.SortKey != "" {
+			sort.Slice(dataEntry, func(i, j int) bool {
+				dateI := dataEntry[i][entryInfo.SortKey].(string)
+				dateJ := dataEntry[j][entryInfo.SortKey].(string)
+
+				if entryInfo.SortAscending {
+					return dateI < dateJ
+				}
+
+				return dateJ < dateI
+			})
 		}
 
 		context[entryName] = dataEntry
