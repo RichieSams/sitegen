@@ -292,7 +292,16 @@ func parseData(config buildConfig) (pongo2.Context, error) {
 			dataEntry = append(dataEntry, frontMatter)
 		}
 
+		// Sort the entries by their sort key
 		if entryInfo.SortKey != "" {
+			// Validate that the sort key entries are all strings
+			for _, entry := range dataEntry {
+				_, ok := entry[entryInfo.SortKey].(string)
+				if !ok {
+					return nil, fmt.Errorf("Can't sort entry %v by non-string value - %v", entry, entry[entryInfo.SortKey])
+				}
+			}
+
 			sort.Slice(dataEntry, func(i, j int) bool {
 				dateI := dataEntry[i][entryInfo.SortKey].(string)
 				dateJ := dataEntry[j][entryInfo.SortKey].(string)
