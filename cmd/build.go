@@ -8,27 +8,29 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var buildOpts struct {
+type buildOpts struct {
 	ConfigPath string
 }
 
-var buildCmd = &cobra.Command{
-	Use:   "build",
-	Short: "Build the static site",
-	PreRun: func(cmd *cobra.Command, args []string) {
-		if buildOpts.ConfigPath == "" {
-			log.Fatal("--config is a required argument")
-		}
-	},
-	Run: func(cmd *cobra.Command, args []string) {
-		err := pkg.BuildSite(buildOpts.ConfigPath)
-		if err != nil {
-			log.Fatalf("%v", err)
-		}
-	},
-}
+func createBuildCmd() *cobra.Command {
+	opts := buildOpts{}
 
-func init() {
-	rootCmd.AddCommand(buildCmd)
-	buildCmd.Flags().StringVarP(&buildOpts.ConfigPath, "config", "c", buildOpts.ConfigPath, "Path to the configuration yaml file")
+	buildCmd := &cobra.Command{
+		Use:   "build",
+		Short: "Build the static site",
+		PreRun: func(cmd *cobra.Command, args []string) {
+			if opts.ConfigPath == "" {
+				log.Fatal("--config is a required argument")
+			}
+		},
+		Run: func(cmd *cobra.Command, args []string) {
+			err := pkg.BuildSite(opts.ConfigPath)
+			if err != nil {
+				log.Fatalf("%v", err)
+			}
+		},
+	}
+
+	buildCmd.Flags().StringVarP(&opts.ConfigPath, "config", "c", opts.ConfigPath, "Path to the configuration yaml file")
+	return buildCmd
 }

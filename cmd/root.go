@@ -1,19 +1,19 @@
 package cmd
 
 import (
-	"log"
-
 	"github.com/spf13/cobra"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "sitegen",
-	Short: "sitegen is a flexible static website generator",
-}
-
-// Execute runs the rootCmd
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		log.Fatal(err)
+// Creates the root Command
+// This can be executed to run the cli
+func CreateRootCmd() *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:   "sitegen",
+		Short: "sitegen is a flexible static website generator",
 	}
+
+	rootCmd.AddCommand(createBuildCmd())
+	rootCmd.AddCommand(createServeCmd())
+
+	return rootCmd
 }
