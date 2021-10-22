@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"log"
+	"fmt"
 
 	"github.com/RichieSams/sitegen/pkg"
 
@@ -21,21 +21,26 @@ func createServeCmd() *cobra.Command {
 	serveCmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Build and serve the static site, re-building on any file changes",
-		PreRun: func(cmd *cobra.Command, args []string) {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if opts.ConfigPath == "" {
-				log.Fatal("--config is a required argument")
+				return fmt.Errorf("--config is a required argument")
 			}
+
+			cmd.SilenceUsage = true
+			return nil
 		},
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			err := pkg.BuildSite(opts.ConfigPath)
 			if err != nil {
-				log.Fatalf("%v", err)
+				return err
 			}
 
 			err = pkg.Serve(opts.ConfigPath, opts.Port)
 			if err != nil {
-				log.Fatalf("%v", err)
+				return err
 			}
+
+			return nil
 		},
 	}
 
