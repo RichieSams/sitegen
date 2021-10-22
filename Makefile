@@ -11,6 +11,9 @@ LDFLAGS?=-ldflags="-s -w"
 
 export GOOS
 
+IMAGE_NAME=quay.io/richiesams/sitegen
+TAG?=test
+
 .PHONY: build vendor
 
 build:
@@ -27,3 +30,6 @@ clean:
 
 vendor:
 	docker run --rm -v $(CURDIR):/ark -w /ark $(GOIMAGE) /bin/sh -c "go mod tidy; go mod vendor"
+
+image: build_linux
+	docker build -t $(IMAGE_NAME):$(TAG) .
